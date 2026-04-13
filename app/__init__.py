@@ -6,16 +6,16 @@ from app.extensions import init_redis, login_manager, socketio
 
 
 def create_app(env: str | None = None) -> Flask:
-    """Application factory.
+    """Flask 应用工厂函数。
 
-    Parameters
+    参数
     ----------
     env:
-        Optional environment name (``"development"``, ``"production"``,
-        ``"testing"``).  Defaults to the ``FLASK_ENV`` environment variable.
+        可选的环境名称（``"development"``、``"production"``、``"testing"``）。
+        默认读取 ``FLASK_ENV`` 环境变量，未设置时回退到 ``"development"``。
     """
-    # Load .env only in non-production environments; production deployments
-    # should inject environment variables through the process environment.
+    # 非生产环境下从 .env 文件加载环境变量；
+    # 生产环境应通过进程环境变量注入，不依赖 .env 文件。
     import os
     from dotenv import load_dotenv
 
@@ -23,39 +23,44 @@ def create_app(env: str | None = None) -> Flask:
         load_dotenv()
 
     app = Flask(__name__)
+    # 根据环境名称加载对应的配置类
     app.config.from_object(get_config(env))
 
     # ------------------------------------------------------------------
-    # Extensions
+    # 初始化扩展
     # ------------------------------------------------------------------
+    # 初始化 Redis 客户端，并挂载到 app.extensions["redis"]
     init_redis(app)
+    # 初始化 Socket.IO，使用 Redis 作为消息队列以支持多进程广播
     socketio.init_app(
         app,
         message_queue=_redis_url(app),
         async_mode="eventlet",
         cors_allowed_origins="*",
     )
+    # 初始化 Flask-Login，未登录时跳转到登录页
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"
 
     # ------------------------------------------------------------------
-    # Blueprints
+    # 注册蓝图（路由模块）
     # ------------------------------------------------------------------
     from app.routes.main import bp as main_bp
     from app.routes.messages import bp as messages_bp
     from app.routes.auth import bp as auth_bp
 
-    app.register_blueprint(main_bp)
-    app.register_blueprint(messages_bp)
-    app.register_blueprint(auth_bp)
+    app.register_blueprint(main_bp)       # 首页路由
+    app.register_blueprint(messages_bp)   # 消息相关路由（REST + Socket.IO）
+    app.register_blueprint(auth_bp)       # 认证路由（登录/登出）
 
     # ------------------------------------------------------------------
-    # Root redirect for unauthenticated users
+    # 全局请求钩子：未登录用户强制跳转登录页
     # ------------------------------------------------------------------
     @app.before_request
     def require_login():
         from flask import request
 
+        # 无需登录即可访问的端点
         open_endpoints = {"auth.login", "static"}
         if not current_user.is_authenticated and request.endpoint not in open_endpoints:
             return redirect(url_for("auth.login"))
@@ -64,6 +69,7 @@ def create_app(env: str | None = None) -> Flask:
 
 
 def _redis_url(app: Flask) -> str:
+    """根据配置拼接 Redis 连接 URL，供 Socket.IO 消息队列使用。"""
     host = app.config["REDIS_HOST"]
     port = app.config["REDIS_PORT"]
     db = app.config["REDIS_DB"]
