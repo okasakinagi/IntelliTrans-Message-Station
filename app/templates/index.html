@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}聊天室 — IntelliTrans 消息站{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+  <!-- Sidebar: room list -->
+  <aside class="room-panel">
+    <h2 class="panel-title">频道</h2>
+    <ul class="room-list" id="roomList">
+      <li class="room-item active" data-room="general">💬 大厅</li>
+      <li class="room-item" data-room="tech">🛠 技术</li>
+      <li class="room-item" data-room="random">🎲 随意</li>
+    </ul>
+  </aside>
+
+  <!-- Main chat area -->
+  <section class="chat-panel">
+    <div class="chat-header">
+      <span id="currentRoom">💬 大厅</span>
+    </div>
+
+    <ul class="message-list" id="messageList" aria-live="polite"></ul>
+
+    <form class="message-form" id="messageForm">
+      <input
+        id="messageInput"
+        type="text"
+        placeholder="输入消息，按回车发送…"
+        autocomplete="off"
+        maxlength="500"
+      />
+      <button type="submit">发送</button>
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"
+        integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+"
+        crossorigin="anonymous"></script>
+<script>
+  // Expose current user to JS
+  const CURRENT_USER = {{ current_user.username | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}
