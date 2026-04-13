@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}登录 — IntelliTrans 消息站{% endblock %}
+
+{% block content %}
+<div class="auth-card">
+  <h2>欢迎来到 IntelliTrans 消息站</h2>
+  <p class="auth-sub">输入一个用户名即可开始聊天</p>
+  <form class="auth-form" method="post" action="{{ url_for('auth.login') }}">
+    <label for="username">用户名</label>
+    <input
+      id="username"
+      type="text"
+      name="username"
+      placeholder="请输入用户名…"
+      maxlength="32"
+      required
+      autofocus
+    />
+    <button type="submit">进入聊天室</button>
+  </form>
+</div>
+{% endblock %}

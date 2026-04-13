@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}IntelliTrans 消息站{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <header class="site-header">
+    <h1 class="site-title">📡 IntelliTrans 消息站</h1>
+    {% if current_user.is_authenticated %}
+    <nav class="site-nav">
+      <span class="nav-user">👤 {{ current_user.username }}</span>
+      <a class="nav-link" href="{{ url_for('auth.logout') }}">退出</a>
+    </nav>
+    {% endif %}
+  </header>
+
+  <main class="site-main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flash-messages">
+          {% for category, message in messages %}
+            <li class="flash flash--{{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>IntelliTrans Message Station &copy; 2025 — Powered by Flask &amp; Redis</p>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
