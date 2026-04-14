@@ -17,6 +17,17 @@ class BaseConfig:
     MESSAGE_CHANNEL = os.environ.get("MESSAGE_CHANNEL", "intellitrans:messages")     # Pub/Sub 频道名
     MESSAGE_HISTORY_KEY = os.environ.get("MESSAGE_HISTORY_KEY", "intellitrans:history")  # 历史记录 List 键名
     MESSAGE_HISTORY_MAX = int(os.environ.get("MESSAGE_HISTORY_MAX", 200))            # 最多保留的历史消息条数
+    ROOM_REGISTRY_KEY = os.environ.get("ROOM_REGISTRY_KEY", "intellitrans:rooms")
+    USER_DM_ROOMS_PREFIX = os.environ.get("USER_DM_ROOMS_PREFIX", "intellitrans:user_dm")
+    DEFAULT_GROUP_ROOMS = os.environ.get("DEFAULT_GROUP_ROOMS", "general,tech,random")
+
+    # 外部智能工作流配置
+    WORKFLOW_ENABLED = os.environ.get("WORKFLOW_ENABLED", "true").lower() == "true"
+    WORKFLOW_API_URL = os.environ.get("WORKFLOW_API_URL", "")
+    WORKFLOW_API_TOKEN = os.environ.get("WORKFLOW_API_TOKEN", "")
+    WORKFLOW_TIMEOUT_SECONDS = float(os.environ.get("WORKFLOW_TIMEOUT_SECONDS", 5))
+    WORKFLOW_HISTORY_WINDOW = int(os.environ.get("WORKFLOW_HISTORY_WINDOW", 20))
+    WORKFLOW_FAIL_OPEN = os.environ.get("WORKFLOW_FAIL_OPEN", "true").lower() == "true"
 
 
 class DevelopmentConfig(BaseConfig):

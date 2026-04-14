@@ -1,4 +1,9 @@
 # 应用入口：创建 Flask 实例并启动 Socket.IO 服务器
+import eventlet
+
+# Redis 消息队列 + eventlet 模式需要在最早期进行 monkey patch。
+eventlet.monkey_patch()
+
 from app import create_app, socketio
 
 # 通过工厂函数创建应用，环境由 FLASK_ENV 环境变量决定

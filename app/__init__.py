@@ -1,5 +1,14 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
 from flask import Flask, redirect, url_for
 from flask_login import current_user
+
+# 在导入 app.config 之前加载 .env，避免配置类在导入时读取到旧环境变量。
+_project_root = Path(__file__).resolve().parent.parent
+_dotenv_path = _project_root / ".env"
+if _dotenv_path.exists():
+    load_dotenv(dotenv_path=_dotenv_path, override=True)
 
 from app.config import get_config
 from app.extensions import init_redis, login_manager, socketio
@@ -14,17 +23,17 @@ def create_app(env: str | None = None) -> Flask:
         可选的环境名称（``"development"``、``"production"``、``"testing"``）。
         默认读取 ``FLASK_ENV`` 环境变量，未设置时回退到 ``"development"``。
     """
-    # 非生产环境下从 .env 文件加载环境变量；
-    # 生产环境应通过进程环境变量注入，不依赖 .env 文件。
-    import os
-    from dotenv import load_dotenv
-
-    if os.environ.get("FLASK_ENV") != "production":
-        load_dotenv()
-
     app = Flask(__name__)
     # 根据环境名称加载对应的配置类
     app.config.from_object(get_config(env))
+
+    if app.config.get("WORKFLOW_ENABLED") and (
+        not app.config.get("WORKFLOW_API_URL") or not app.config.get("WORKFLOW_API_TOKEN")
+    ):
+        app.logger.warning(
+            "工作流已启用但缺少 WORKFLOW_API_URL 或 WORKFLOW_API_TOKEN，"
+            "消息将按降级策略处理。"
+        )
 
     # ------------------------------------------------------------------
     # 初始化扩展
@@ -59,6 +68,10 @@ def create_app(env: str | None = None) -> Flask:
     @app.before_request
     def require_login():
         from flask import request
+
+        # Socket.IO 握手与轮询路径不走 Flask 普通页面鉴权分支。
+        if request.path.startswith("/socket.io"):
+            return None
 
         # 无需登录即可访问的端点
         open_endpoints = {"auth.login", "static"}
