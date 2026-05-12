@@ -81,15 +81,15 @@
 
   function getRoomTitle(room) {
     const labels = {
-      general: "👥 大厅",
-      tech: "🛠 技术组",
-      random: "🎈 闲聊区",
+      general: "# 大厅",
+      tech: "# 技术组",
+      random: "# 闲聊区",
     };
     if (!isDmRoom(room)) {
-      return labels[room] || room;
+      return labels[room] || "# " + room;
     }
     const peer = dmPeerByRoom[room] || currentPeer || "私聊";
-    return "💬 与 " + peer + " 私聊";
+    return "@ " + peer;
   }
 
   function renderGroupRooms(rooms) {
@@ -104,7 +104,7 @@
       item.type = "button";
       item.className = "room-item";
       item.dataset.room = room;
-      item.textContent = room === "general" ? "👥 大厅" : "# " + room;
+      item.textContent = room === "general" ? "# 大厅" : "# " + room;
       item.addEventListener("click", function () {
         joinRoom(room, { type: "group", peer: "" });
       });
@@ -152,7 +152,7 @@
       item.type = "button";
       item.className = "room-item";
       item.dataset.room = room;
-      item.textContent = "💬 " + peer;
+      item.textContent = "@ " + peer;
       item.addEventListener("click", function () {
         joinRoom(room, { type: "dm", peer: peer });
       });
@@ -450,7 +450,7 @@
       const li = document.createElement("li");
       li.className = "user-item";
       li.dataset.username = name;
-      li.textContent = "🟢 " + name;
+      li.textContent = name;
       li.addEventListener("click", function () {
         if (socket.connected) {
           socket.emit("open_private_chat", { peer: name });
@@ -544,12 +544,12 @@
     socket.emit("fetch_sessions");
     setRoomHeader();
     refreshGroupActiveState();
-    appendStatus("✅ 实时连接已建立");
+    appendStatus("实时连接已建立");
     joinRoom(currentRoom, { type: currentRoomType, peer: currentPeer, forceJoin: true });
   });
 
   socket.on("disconnect", function () {
-    startFallbackPolling("⚠️ 实时连接已断开，已切换 HTTP 轮询模式。");
+    startFallbackPolling("实时连接已断开，已切换 HTTP 轮询模式。");
   });
 
   // 收到房间历史记录（切换房间时触发）

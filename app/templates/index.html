@@ -34,7 +34,7 @@
   <!-- Main chat area -->
   <section class="chat-panel">
     <div class="chat-header">
-      <span id="currentRoom">👥 大厅</span>
+      <span id="currentRoom"># 大厅</span>
       <span class="room-type-tag" id="roomTypeTag">群聊</span>
     </div>
 
@@ -87,7 +87,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
 <script>
   // Expose current user to JS
   const CURRENT_USER = {{ current_user.username | tojson }};

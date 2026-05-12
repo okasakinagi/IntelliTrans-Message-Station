@@ -200,11 +200,12 @@ def on_connect(auth=None):
     username = ""
     if current_user.is_authenticated and getattr(current_user, "username", ""):
         username = str(current_user.username)
-    elif isinstance(auth, dict):
-        username = str((auth.get("username") or "").strip())
+    elif isinstance(auth, dict) and auth.get("username"):
+        username = str(auth["username"]).strip()
 
     if not username:
-        return False
+        from python_socketio.exceptions import ConnectionRefusedError
+        raise ConnectionRefusedError("未登录")
 
     sid = request.sid
     _sid_to_user[sid] = username
@@ -213,6 +214,7 @@ def on_connect(auth=None):
     _broadcast_online_users()
     _broadcast_group_rooms()
     _emit_private_rooms_for_user(username)
+    return True
 
 
 @socketio.on("disconnect")
