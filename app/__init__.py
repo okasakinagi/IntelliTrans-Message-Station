@@ -44,7 +44,7 @@ def create_app(env: str | None = None) -> Flask:
     socketio.init_app(
         app,
         message_queue=_redis_url(app),
-        async_mode="eventlet",
+        async_mode="threading",
         cors_allowed_origins="*",
     )
     # 初始化 Flask-Login，未登录时跳转到登录页

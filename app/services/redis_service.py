@@ -6,7 +6,8 @@ import uuid
 
 from flask import current_app
 
-from app.extensions import redis_client
+# 使用模块引用（非值导入），确保 init_redis 后能获取到已初始化的客户端。
+import app.extensions as _ext
 
 # 使用模块名创建日志记录器，便于追踪来源
 logger = logging.getLogger(__name__)
@@ -48,14 +49,14 @@ def ensure_default_group_rooms() -> list[str]:
         defaults.insert(0, "general")
 
     if defaults:
-        redis_client.sadd(registry_key, *defaults)
+        _ext.redis_client.sadd(registry_key, *defaults)
     return list_group_rooms()
 
 
 def list_group_rooms() -> list[str]:
     """返回所有群聊会话名。"""
     registry_key: str = current_app.config["ROOM_REGISTRY_KEY"]
-    rooms = [room for room in redis_client.smembers(registry_key) if isinstance(room, str)]
+    rooms = [room for room in _ext.redis_client.smembers(registry_key) if isinstance(room, str)]
     if not rooms:
         return ensure_default_group_rooms()
     return _sorted_rooms(rooms)
@@ -64,7 +65,7 @@ def list_group_rooms() -> list[str]:
 def is_group_room_exists(room: str) -> bool:
     """判断群聊会话是否存在。"""
     registry_key: str = current_app.config["ROOM_REGISTRY_KEY"]
-    return bool(redis_client.sismember(registry_key, room))
+    return bool(_ext.redis_client.sismember(registry_key, room))
 
 
 def create_group_room(room_name: str) -> str:
@@ -74,7 +75,7 @@ def create_group_room(room_name: str) -> str:
         raise ValueError("房间名不合法，仅支持中英文、数字、下划线和连字符，长度 1-32")
 
     registry_key: str = current_app.config["ROOM_REGISTRY_KEY"]
-    redis_client.sadd(registry_key, normalized)
+    _ext.redis_client.sadd(registry_key, normalized)
     return normalized
 
 
@@ -84,21 +85,21 @@ def delete_group_room(room: str) -> bool:
         raise ValueError("大厅会话不允许删除")
 
     registry_key: str = current_app.config["ROOM_REGISTRY_KEY"]
-    removed = redis_client.srem(registry_key, room)
+    removed = _ext.redis_client.srem(registry_key, room)
     if removed:
-        redis_client.delete(_history_key_for_room(room))
+        _ext.redis_client.delete(_history_key_for_room(room))
     return bool(removed)
 
 
 def add_private_room_for_users(room: str, username_a: str, username_b: str) -> None:
     """将私聊会话写入双方会话集合。"""
     for username in {username_a, username_b}:
-        redis_client.sadd(_user_dm_rooms_key(username), room)
+        _ext.redis_client.sadd(_user_dm_rooms_key(username), room)
 
 
 def list_private_rooms(username: str) -> list[str]:
     """返回用户私聊会话列表。"""
-    rooms = [room for room in redis_client.smembers(_user_dm_rooms_key(username)) if isinstance(room, str)]
+    rooms = [room for room in _ext.redis_client.smembers(_user_dm_rooms_key(username)) if isinstance(room, str)]
     return sorted(rooms)
 
 
@@ -113,10 +114,10 @@ def delete_private_room(room: str, operator: str) -> bool:
 
     removed_count = 0
     for username in members:
-        removed_count += int(redis_client.srem(_user_dm_rooms_key(username), room))
+        removed_count += int(_ext.redis_client.srem(_user_dm_rooms_key(username), room))
 
     if removed_count:
-        redis_client.delete(_history_key_for_room(room))
+        _ext.redis_client.delete(_history_key_for_room(room))
     return bool(removed_count)
 
 
@@ -148,11 +149,11 @@ def publish_message(
     max_history: int = current_app.config["MESSAGE_HISTORY_MAX"]
 
     # 发布消息到 Pub/Sub 频道，所有订阅者（在线用户）将实时收到
-    redis_client.publish(channel, payload)
+    _ext.redis_client.publish(channel, payload)
     # 将消息追加到历史记录列表的右端
-    redis_client.rpush(history_key, payload)
+    _ext.redis_client.rpush(history_key, payload)
     # 裁剪列表，仅保留最新的 max_history 条记录，防止无限增长
-    redis_client.ltrim(history_key, -max_history, -1)
+    _ext.redis_client.ltrim(history_key, -max_history, -1)
 
     return message
 
@@ -165,13 +166,13 @@ def get_history(room: str | None = None, limit: int | None = None) -> list[dict]
     if room:
         history_key = _history_key_for_room(room)
         if limit and limit > 0:
-            raw_messages: list[str] = redis_client.lrange(history_key, -limit, -1)
+            raw_messages: list[str] = _ext.redis_client.lrange(history_key, -limit, -1)
         else:
-            raw_messages = redis_client.lrange(history_key, 0, -1)
+            raw_messages = _ext.redis_client.lrange(history_key, 0, -1)
     else:
         # 保留兼容：未传 room 时从旧全局 key 读取。
         history_key: str = current_app.config["MESSAGE_HISTORY_KEY"]
-        raw_messages = redis_client.lrange(history_key, 0, -1)
+        raw_messages = _ext.redis_client.lrange(history_key, 0, -1)
 
     messages = []
     for raw in raw_messages:
@@ -185,3 +186,48 @@ def get_history(room: str | None = None, limit: int | None = None) -> list[dict]
         if room is None or msg.get("room") == room:
             messages.append(msg)
     return messages
+
+
+# ---------------------------------------------------------------------------
+# 在线用户 Presence（Redis 键 + TTL 自动过期，支持多 worker 共享）
+# ---------------------------------------------------------------------------
+
+
+def mark_user_online(username: str) -> None:
+    """标记用户在线，通过 TTL 自动过期。每次心跳调用以续期。"""
+    prefix: str = current_app.config["ONLINE_USERS_PREFIX"]
+    ttl: int = current_app.config["ONLINE_USER_TTL"]
+    key = f"{prefix}:{username}"
+    _ext.redis_client.setex(key, ttl, "1")
+
+
+def remove_user_online(username: str) -> None:
+    """立即移除在线状态（Socket 断开时调用）。"""
+    prefix: str = current_app.config["ONLINE_USERS_PREFIX"]
+    key = f"{prefix}:{username}"
+    _ext.redis_client.delete(key)
+
+
+def get_online_users() -> list[str]:
+    """通过 SCAN 获取所有在线用户名。"""
+    prefix: str = current_app.config["ONLINE_USERS_PREFIX"]
+    pattern = f"{prefix}:*"
+    usernames: list[str] = []
+    cursor = 0
+    while True:
+        cursor, keys = _ext.redis_client.scan(cursor=cursor, match=pattern, count=100)
+        for key in keys:
+            if isinstance(key, str):
+                username = key[len(prefix) + 1:]
+                if username:
+                    usernames.append(username)
+        if cursor == 0:
+            break
+    return sorted(usernames)
+
+
+def is_user_online(username: str) -> bool:
+    """判断指定用户是否在线。"""
+    prefix: str = current_app.config["ONLINE_USERS_PREFIX"]
+    key = f"{prefix}:{username}"
+    return bool(_ext.redis_client.exists(key))

@@ -1,5 +1,4 @@
 from collections import defaultdict
-import time
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_login import current_user, login_required
@@ -13,21 +12,24 @@ from app.services.redis_service import (
     delete_private_room,
     ensure_default_group_rooms,
     get_history,
+    get_online_users as redis_get_online_users,
     is_group_room_exists,
+    is_user_online,
     list_group_rooms,
     list_private_rooms,
+    mark_user_online,
     publish_message,
+    remove_user_online,
 )
 from app.services.workflow_service import WorkflowServiceError, process_new_message, request_manual_translation
 
 # 消息蓝图：提供 REST 历史接口和 Socket.IO 实时事件处理
 bp = Blueprint("messages", __name__, url_prefix="/messages")
 
-# 在线用户会话表（demo 级内存实现，单实例可用）
-_online_users: dict[str, set[str]] = defaultdict(set)
+# 进程本地的 sid → username 映射（仅用于 Socket 事件路由，不跨 worker 共享）
 _sid_to_user: dict[str, str] = {}
-_http_presence: dict[str, float] = {}
-_HTTP_PRESENCE_TTL_SECONDS = 40
+# 进程本地的 username → {sid, ...} 映射（仅用于本 worker 内 emit to=user）
+_online_sids: dict[str, set[str]] = defaultdict(set)
 
 
 def _is_dm_room(room: str) -> bool:
@@ -55,28 +57,33 @@ def _can_join_room(room: str, username: str) -> bool:
 
 
 def _broadcast_online_users() -> None:
-    socketio.emit("online_users", {"users": _online_usernames()})
+    """读取 Redis 在线用户列表并广播给所有客户端。"""
+    socketio.emit("online_users", {"users": redis_get_online_users()})
 
 
 def _mark_http_presence(username: str) -> None:
-    _http_presence[username] = time.time()
+    """HTTP 心跳：续期 Redis 在线键。"""
+    mark_user_online(username)
 
 
 def _online_usernames() -> list[str]:
-    now = time.time()
-    stale_users = [u for u, ts in _http_presence.items() if now - ts > _HTTP_PRESENCE_TTL_SECONDS]
-    for username in stale_users:
-        _http_presence.pop(username, None)
-
-    merged = set(_online_users.keys()) | set(_http_presence.keys())
-    return sorted(merged)
+    """返回 Redis 中当前所有在线用户名。"""
+    return redis_get_online_users()
 
 
 def _socket_username() -> str:
-    """获取当前 Socket 连接用户名，兼容 Flask-Login 与 auth 回退。"""
-    if current_user.is_authenticated and getattr(current_user, "username", ""):
-        return str(current_user.username)
-    return _sid_to_user.get(request.sid, "")
+    """获取当前 Socket 连接用户名，并自动续期 Redis 在线键。
+
+    Socket 连接建立时已将 sid→username 写入 _sid_to_user，
+    优先级高于 current_user（后者可能因同浏览器 Cookie 覆盖而错乱）。
+    """
+    username = _sid_to_user.get(request.sid, "")
+    if not username and current_user.is_authenticated:
+        username = str(getattr(current_user, "username", ""))
+    # 每次 Socket 活动都续期在线键，防止 TTL 过期导致"假离线"
+    if username:
+        mark_user_online(username)
+    return username
 
 
 def _broadcast_group_rooms() -> None:
@@ -86,7 +93,7 @@ def _broadcast_group_rooms() -> None:
 
 def _emit_private_rooms_for_user(username: str) -> None:
     rooms = list_private_rooms(username)
-    for sid in _online_users.get(username, set()):
+    for sid in _online_sids.get(username, set()):
         socketio.emit("private_rooms_updated", {"rooms": rooms}, to=sid)
 
 
@@ -209,7 +216,8 @@ def on_connect(auth=None):
 
     sid = request.sid
     _sid_to_user[sid] = username
-    _online_users[username].add(sid)
+    _online_sids[username].add(sid)
+    mark_user_online(username)
     ensure_default_group_rooms()
     _broadcast_online_users()
     _broadcast_group_rooms()
@@ -225,11 +233,13 @@ def on_disconnect():
     if not username:
         return
 
-    user_sids = _online_users.get(username)
+    user_sids = _online_sids.get(username)
     if user_sids:
         user_sids.discard(sid)
         if not user_sids:
-            _online_users.pop(username, None)
+            _online_sids.pop(username, None)
+            # 用户所有连接都断开时才从 Redis 移除在线状态
+            remove_user_online(username)
     _broadcast_online_users()
 
 
@@ -315,7 +325,7 @@ def on_open_private_chat(data):
     _emit_private_rooms_for_user(peer)
 
     # 通知对方有新的私聊会话可加入。
-    for sid in _online_users.get(peer, set()):
+    for sid in _online_sids.get(peer, set()):
         emit("private_chat_invite", {"room": room, "peer": me}, to=sid)
 
 
@@ -345,7 +355,7 @@ def on_delete_private_chat(data):
     members = _dm_members(room)
     for username in members:
         _emit_private_rooms_for_user(username)
-        for sid in _online_users.get(username, set()):
+        for sid in _online_sids.get(username, set()):
             socketio.emit("room_deleted", {"room": room, "room_type": "dm"}, to=sid)
 
 

@@ -1,8 +1,5 @@
 # 应用入口：创建 Flask 实例并启动 Socket.IO 服务器
-import eventlet
-
-# Redis 消息队列 + eventlet 模式需要在最早期进行 monkey patch。
-eventlet.monkey_patch()
+# 使用 threading 异步模式，Windows / Linux 均可稳定运行。
 
 from app import create_app, socketio
 

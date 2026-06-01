@@ -19,6 +19,8 @@ class BaseConfig:
     MESSAGE_HISTORY_MAX = int(os.environ.get("MESSAGE_HISTORY_MAX", 200))            # 最多保留的历史消息条数
     ROOM_REGISTRY_KEY = os.environ.get("ROOM_REGISTRY_KEY", "intellitrans:rooms")
     USER_DM_ROOMS_PREFIX = os.environ.get("USER_DM_ROOMS_PREFIX", "intellitrans:user_dm")
+    ONLINE_USERS_PREFIX = os.environ.get("ONLINE_USERS_PREFIX", "intellitrans:online")
+    ONLINE_USER_TTL = int(os.environ.get("ONLINE_USER_TTL", 60))
     DEFAULT_GROUP_ROOMS = os.environ.get("DEFAULT_GROUP_ROOMS", "general,tech,random")
 
     # 外部智能工作流配置

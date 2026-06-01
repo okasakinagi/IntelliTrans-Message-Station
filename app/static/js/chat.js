@@ -212,7 +212,7 @@
     });
     actions.appendChild(translateBtn);
 
-    if (Array.isArray(msg.suggested_replies) && msg.suggested_replies.length > 0) {
+    if (!isMe && Array.isArray(msg.suggested_replies) && msg.suggested_replies.length > 0) {
       const suggestions = document.createElement("div");
       suggestions.className = "message-suggestions";
       msg.suggested_replies.forEach(function (item) {
@@ -641,6 +641,18 @@
   socket.on("connect_error", function () {
     startFallbackPolling("⚠️ 实时连接失败，已切换 HTTP 轮询模式。");
   });
+
+  // 连接超时（长时间无响应）同样降级
+  if (hasSocketClient) {
+    var fallbackTimer = setTimeout(function () {
+      if (!socket.connected && !fallbackPollingStarted) {
+        startFallbackPolling("⚠️ 实时连接超时，已切换 HTTP 轮询模式。");
+      }
+    }, 5000);
+    socket.on("connect", function () {
+      clearTimeout(fallbackTimer);
+    });
+  }
 
   // ----------------------------------------------------------------
   // 用户交互事件
