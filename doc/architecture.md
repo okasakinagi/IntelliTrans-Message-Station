@@ -2,97 +2,34 @@
 
 ## 系统架构图
 
-```
-                         ┌─────────────────────────┐
-                         │        浏览器 (chat.js)   │
-                         │  Socket.IO / HTTP 双通道  │
-                         └──────────┬──────────────┘
-                                    │
-                    ┌───────────────┴───────────────┐
-                    │                               │
-               WebSocket                      HTTP REST
-                    │                               │
-                    ▼                               ▼
-┌──────────────────────────────────────────────────────────┐
-│              Flask + Flask-SocketIO (threading)          │
-│                                                          │
-│  ┌──────────┐  ┌──────────┐  ┌────────────────────┐      │
-│  │  auth.py │  │  main.py │  │   messages.py      │      │ 
-│  │ 登录/登出 │  │ 首页路由  │ │  REST + Socket 事件 │      │
-│  └──────────┘  └──────────┘  └────────┬───────────┘      │
-│                                       │                  │
-│                          ┌────────────┴────────────┐     │
-│                          │    app/services/        │     │
-│                          │  ┌───────────────────┐  │     │
-│                          │  │  redis_service.py │  │     │
-│                          │  │  workflow_service │  │     │
-│                          │  └───────────────────┘  │     │
-│                          └────────────┬────────────┘     │
-└───────────────────────────────────────┼──────────────────┘
-                                        │
-                    ┌───────────────────┴───────────────────┐
-                    │                                       │
-                    ▼                                       ▼
-        ┌──────────────────┐                  ┌──────────────────┐
-        │      Redis       │                  │  AI 工作流 (Coze) │
-        │                  │                  │                  │
-        │  Pub/Sub 消息广播 │                  │  安全检查        │
-        │  List    历史记录 │                  │  语言检测        │
-        │  Set     房间索引 │                  │  智能翻译        │
-        │  String  在线状态 │                  │  推荐回复        │
-        └──────────────────┘                  └──────────────────┘
-```
-
----
+![系统架构图](../img/architecture.png)
 
 ## 数据流
 
-### 消息发送流程（Socket.IO 通道）
+### 消息发送流程
 
-```
-1. 用户输入消息 → Socket emit("send_message")
-2. 服务端 _socket_username() 解析身份 + 续期在线键
-3. 调用 workflow_service.process_new_message()
-   ├─ 向 Coze API 发送: { new_message, chat_history, is_translation_requested: false }
-   ├─ 返回: { is_safe, needs_translation, translation_result, suggested_replies }
-   └─ 容错: 失败时 fail-open 放行
-4. is_safe=false → emit("message_rejected") 拦截
-5. is_safe=true → publish_message() 发布到 Redis
-   ├─ PUBLISH intellitrans:messages {payload}   → 实时广播
-   ├─ RPUSH intellitrans:history:{room}         → 追加历史
-   └─ LTRIM 裁剪至最近 200 条
-6. emit("new_message", message, to=room)        → 房间内广播
-```
-
-### 消息发送流程（HTTP 降级通道）
-
-```
-1. 用户输入消息 → fetch POST /messages/send
-2. 服务端处理同上（工作流 + Redis）
-3. socketio.emit("new_message", message, to=room) → 仍走 Socket 广播
-4. 返回 HTTP 200 + message 对象
-5. 前端 socket.connected=false 时手动 appendMessage 回显
-```
+![消息处理流程图](../img/message-flow.png)
 
 ### 在线状态流转
 
-```
-Socket 连接建立
-  → mark_user_online(username)                 # SETEX intellitrans:online:{user} 60 "1"
-  → _broadcast_online_users()                  # 全客户端接收更新
+![在线状态流转图](../img/online-presence.png)
 
-每次 Socket 事件（发消息、切房间等）
-  → _socket_username() 自动调用 mark_user_online()  # 续期 TTL
+### 流程说明
 
-Socket 断开
-  → 所有 sid 都断开后 remove_user_online()     # DEL intellitrans:online:{user}
+**Socket.IO 通道：**
+1. 用户输入消息 → `socket.emit("send_message")`
+2. 服务端 `_socket_username()` 解析身份 + 续期在线键
+3. 调用 `workflow_service.process_new_message()`
+4. `is_safe=false` → `emit("message_rejected")` 拦截
+5. `is_safe=true` → `publish_message()` → Redis Pub/Sub + List
+6. `emit("new_message", message, to=room)` → 房间内广播
 
-HTTP 心跳（每 8 秒）
-  → POST /messages/presence → mark_user_online()
-
-获取在线列表
-  → redis_get_online_users()                   # SCAN intellitrans:online:*
-```
+**HTTP 降级通道：**
+1. 用户输入消息 → `fetch POST /messages/send`
+2. 服务端处理同上（工作流 + Redis）
+3. `socketio.emit("new_message", message, to=room)` → 仍走 Socket 广播
+4. 返回 HTTP 200 + message 对象
+5. 前端 `socket.connected=false` 时手动 `appendMessage` 回显
 
 ---
 
